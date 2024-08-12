@@ -1,9 +1,20 @@
 import json
+from infra import logger
 from infra.r import r
 import time
 from typing import Callable, Any
 import asyncio
 
+
+class QueueTask():
+    def __init__(self, params: dict, retry_count: int = 0):
+        self.params = params
+        self.retry_count = retry_count
+    
+    @classmethod
+    def from_json(cls, json_str):
+        data = json.loads(json_str)
+        return cls(**data)
 
 class RQueue():
     """
@@ -27,8 +38,8 @@ class RQueue():
     
     def _get_queue(self):
         """Retrieves the queue from the redis."""
-        queue_data = r.get(self.key)
-        return json.loads(queue_data) if queue_data else []
+        queue_data = r.get(self.key) or []
+        return [QueueTask.from_json(task) for task in queue_data]
     
     def __set_queue(self):
         """Updates the queue in the redis."""
@@ -47,15 +58,27 @@ class RQueue():
                 continue
             
             task = self.task_list[0]
-            success = await self.handler(task)
+            task.retry_count += 1
+            try:
+                self.__set_queue()
+                logger.debug("processing task: %s", task)
+                success = await self.handler(task.params, task.retry_count)
+            except Exception as e:
+                logger.error("process task error, task: %s, error: %s", task, e)
+                success = False
+                
             if success == True:
                 self.task_list.pop(0)
                 self._set_queue()
+                logger.debug("process task success: %s", task)
                 time.sleep(self.handle_sleep)
             else: 
+                # 移到队尾
+                self.task_list.append(self.task_list.pop(0))
+                logger.error("process task error: %s", task)
                 time.sleep(self.retry_sleep) # retry
     
-    def append(self, task: dict):
+    def append(self, params: dict):
         """Appends a new task to the queue."""
-        self.task_list.append(task)
+        self.task_list.append(QueueTask(params=params))
         self.__set_queue()

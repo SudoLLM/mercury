@@ -2,7 +2,7 @@ import asyncio
 import os
 import shutil
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from infra.rqueue import RQueue
 from pydantic import BaseModel
@@ -25,9 +25,9 @@ class TrainAudioTask():
         self.ref_dir_name = ref_dir_name
         self.epoch = epoch
 
-async def train_audio_task_handler(task: TrainAudioTask):
+async def train_audio_task_handler(task: TrainAudioTask, retry_count: int):
     try:
-        logger.debug("starting training request")
+        logger.debug(f"starting training audio request: task: {task}")
         models = await query_model(name=task.model_name)
         model = None
         if len(models) == 0:
@@ -40,7 +40,11 @@ async def train_audio_task_handler(task: TrainAudioTask):
         await update_model(model.id, audio_model=task.model_name + ".pth")
         await update_task(task.task_id, status=TaskStatus.SUCCEEDED)
     except Exception as e:
-        await update_task(task.task_id, status=TaskStatus.FAILED)
+        logger.error(f"training audio failed, task: {task} error: {e}")
+        if retry_count < 3:
+            return False
+        else:
+            await update_task(task.task_id, status=TaskStatus.FAILED)
     return True
     
 class TrainVideoTask():
@@ -48,28 +52,37 @@ class TrainVideoTask():
         self.task_id = task_id
         self.speaker = speaker
 
-async def train_video_task_handler(task: TrainVideoTask):
-    # talking-head是否存在正在进行的任务
-    response = requests.get("http://0.0.0.0:8000/talking-head/train-ready")
-    if not response.ok:
-        return False
-    if not response.json().get("ready", False):
-        return False
+async def train_video_task_handler(task: TrainVideoTask, retry_count: int = 0):
+    try:
+        # talking-head是否存在正在进行的任务
+        logger.debug(f"starting training video request, task: {task}")
+        response = requests.get("http://0.0.0.0:8000/talking-head/train-ready")
+        if not response.ok:
+            raise Exception("talking-head response error, code: {response.status_code}")
+        if not response.json().get("ready", False):
+            raise Exception("talking-head is not ready")
     
-    # taking-head start train
-    response = requests.post(
-        "http://0.0.0.0:8000/talking-head/train",
-        json={
-            "speaker": task.speaker,
-            "callback_url": f"http://0.0.0.0:3333/internal/task/{task.id}",
-            "callback_method": "put",
-        },
-        headers={"Content-Type": "application/json"},
-    )
-    if not response.ok:
-        return False
+        # taking-head start train
+        response = requests.post(
+            "http://0.0.0.0:8000/talking-head/train",
+            json={
+                "speaker": task.speaker,
+                "callback_url": f"http://0.0.0.0:3333/internal/task/{task.id}",
+                "callback_method": "put",
+            },
+            headers={"Content-Type": "application/json"},
+        )
+        if not response.ok:
+            raise Exception("talking-head response error, code: {response.status_code}")
+        
+        await update_task(task.task_id, status=TaskStatus.SUCCEEDED)
+    except Exception as e:
+        logger.error(f"training video failed, task: {task} error: {e}")
+        if retry_count < 3:
+            return False
+        else:
+            await update_task(task.task_id, status=TaskStatus.FAILED)
 
-    logger.debug(f"response code: {response.status_code}")
     return True
 
 train_audio_queue = RQueue(TRAIN_AUDIO_KEY, train_audio_task_handler, 60 * 2, 60)
@@ -125,8 +138,7 @@ async def slice_for_cosy_voice(model_name: str, task_id: int, ref_dir_name: str)
     )
     
     if not response.ok:
-        await update_task(task_id, status=TaskStatus.FAILED)
-        raise HTTPException(status_code=response.status_code, detail=response.text)
+        raise Exception("slice audio failed, code: {response.status_code}")
     
 # 训练rvc模型
 async def train_rvc(model_name: str, task_id: int, model_id: int, ref_dir_name: str, epoch: int):
@@ -140,11 +152,7 @@ async def train_rvc(model_name: str, task_id: int, model_id: int, ref_dir_name: 
     )
 
     if not response.ok:
-        await update_task(task_id, status=TaskStatus.FAILED)
-    logger.info("train completed")
-
-    await update_model(model_id, audio_model=model_name + ".pth")
-    await update_task(task_id, status=TaskStatus.SUCCEEDED)
+        raise Exception("response error, code: {response.status_code}")
 
 @router.post("/audio_model")
 async def train_audio_model(
