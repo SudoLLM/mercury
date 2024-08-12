@@ -4,6 +4,7 @@ import shutil
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from infra.rqueue import RQueue
 from pydantic import BaseModel
 import requests
 from middleware.auth import getUserInfo
@@ -13,6 +14,67 @@ from models.task import Task, TaskStatus, create_task, update_task
 from models.model import create_model, query_model, Model, update_model
 from routes.common import CommonSchemaConfig
 from utils.file import createDir
+
+TRAIN_AUDIO_KEY = "TRAIN_AUDIO"
+TRAIN_VIDEO_KEY = "TRAIN_VIDEO"
+
+class TrainAudioTask():
+    def __init__(self, task_id: int, model_name: str, ref_dir_name: str, epoch: int):
+        self.task_id = task_id
+        self.model_name = model_name
+        self.ref_dir_name = ref_dir_name
+        self.epoch = epoch
+
+async def train_audio_task_handler(task: TrainAudioTask):
+    try:
+        logger.debug("starting training request")
+        models = await query_model(name=task.model_name)
+        model = None
+        if len(models) == 0:
+            model = await create_model(name=task.model_name)
+        else:
+            model = models[0]
+        # cosy voice
+        await slice_for_cosy_voice(task.model_name, task.task_id,task.ref_dir_name)
+        await train_rvc(task.model_name, task.task_id, task.epoch, task.ref_dir_name)
+        await update_model(model.id, audio_model=task.model_name + ".pth")
+        await update_task(task.task_id, status=TaskStatus.SUCCEEDED)
+    except Exception as e:
+        await update_task(task.task_id, status=TaskStatus.FAILED)
+    return True
+    
+class TrainVideoTask():
+    def __init__(self, task_id: int, speaker: str):
+        self.task_id = task_id
+        self.speaker = speaker
+
+async def train_video_task_handler(task: TrainVideoTask):
+    # talking-head是否存在正在进行的任务
+    response = requests.get("http://0.0.0.0:8000/talking-head/train-ready")
+    if not response.ok:
+        return False
+    if not response.json().get("ready", False):
+        return False
+    
+    # taking-head start train
+    response = requests.post(
+        "http://0.0.0.0:8000/talking-head/train",
+        json={
+            "speaker": task.speaker,
+            "callback_url": f"http://0.0.0.0:3333/internal/task/{task.id}",
+            "callback_method": "put",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+    if not response.ok:
+        return False
+
+    logger.debug(f"response code: {response.status_code}")
+    return True
+
+train_audio_queue = RQueue(TRAIN_AUDIO_KEY, train_audio_task_handler, 60 * 2, 60)
+train_video_queue = RQueue(TRAIN_VIDEO_KEY, train_video_task_handler, 60 * 20, 60 * 5)
+
 
 router = APIRouter(
     prefix="/train",
@@ -41,43 +103,48 @@ class TrainAudioRequestBody(BaseModel):
     epoch: Optional[int] = 200
     file_ids: List[int]
 
-
-async def train_request(
-    body: TrainAudioRequestBody, task: Task, model: Model, ref_dir_name: str
-):
-
-    logger.debug("starting training request")
-
+# 切分音频作为 cosyvoice 参考音频
+async def slice_for_cosy_voice(model_name: str, task_id: int, ref_dir_name: str):
+    output_dir_name = os.path.join(
+        "/home/ubuntu/Projects/CosyVoice/mercury_workspace",
+        model_name,
+    )
+    createDir(output_dir_name)
+    
+    response = requests.post(
+        "http://0.0.0.0:3336/audio/slice_audio",
+        json={
+            "audio_file": ref_dir_name,
+            "output_dir": output_dir_name,
+            "min_length": 8,
+            "max_length": 12,
+            "keep_silent": 0.5,
+            "sliding_slice": False
+        },
+        headers={"Content-Type": "application/json"},
+    )
+    
+    if not response.ok:
+        await update_task(task_id, status=TaskStatus.FAILED)
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+    
+# 训练rvc模型
+async def train_rvc(model_name: str, task_id: int, model_id: int, ref_dir_name: str, epoch: int):
     response = requests.post(
         "http://127.0.0.1:3334/train?name="
-        + body.model_name
+        + model_name
         + "&ref_dir_name="
         + ref_dir_name
         + "&epoch="
-        + str(body.epoch)
+        + str(epoch)
     )
 
     if not response.ok:
-        await update_task(task.id, status=TaskStatus.FAILED)
-
+        await update_task(task_id, status=TaskStatus.FAILED)
     logger.info("train completed")
 
-    await update_model(model.id, audio_model=body.model_name + ".pth")
-    await update_task(task.id, status=TaskStatus.SUCCEEDED)
-
-
-def wrapped_train_request(
-    body: TrainAudioRequestBody, task: Task, model: Model, ref_dir_name: str
-):
-    asyncio.run(train_request(body, task, model, ref_dir_name))
-
-
-def run_async_in_thread(task):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(task)
-    loop.close()
-
+    await update_model(model_id, audio_model=model_name + ".pth")
+    await update_task(task_id, status=TaskStatus.SUCCEEDED)
 
 @router.post("/audio_model")
 async def train_audio_model(
@@ -85,15 +152,7 @@ async def train_audio_model(
     body: TrainAudioRequestBody,
 ):
     user = getUserInfo(req)
-
-    models = await query_model(name=body.model_name)
-
     task = await create_task()
-    model = None
-    if len(models) == 0:
-        model = await create_model(name=body.model_name)
-    else:
-        model = models[0]
 
     ref_dir_name = os.path.join(
         "/home/ubuntu/Projects/Retrieval-based-Voice-Conversion-WebUI/reference",
@@ -110,9 +169,8 @@ async def train_audio_model(
         file_name = os.path.basename(file.path)
         new_file_path = os.path.join(ref_dir_name, file_name)
         shutil.copy(file.path, new_file_path)
-
-    # update task status after request completed
-    asyncio.create_task(train_request(body, task, model, ref_dir_name))
+        
+    train_audio_queue.append(TrainAudioTask(task.id, body.model_name, ref_dir_name, body.epoch))
 
     return JSONResponse(
         {
@@ -166,21 +224,7 @@ async def train_video_model(
         count = count + 1
 
     # query request
-    response = requests.post(
-        "http://0.0.0.0:8000/talking-head/train",
-        json={
-            "speaker": body.speaker,
-            "callback_url": f"http://0.0.0.0:3333/internal/task/{task.id}",
-            "callback_method": "put",
-        },
-        headers={"Content-Type": "application/json"},
-    )
-
-    if not response.ok:
-        raise HTTPException(status_code=response.status_code,
-                            detail=response.json())
-
-    logger.debug(f"response code: {response.status_code}")
+    train_video_queue.append(TrainVideoTask(task.id, body.speaker))
 
     return JSONResponse(
         {
