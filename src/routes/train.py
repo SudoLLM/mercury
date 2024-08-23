@@ -4,7 +4,7 @@ import shutil
 from typing import List, Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from common.task_queue import RQueue
+from common.task_queue import TaskQueue
 from models.task import TaskStatus
 from pydantic import BaseModel
 import requests
@@ -55,13 +55,13 @@ async def train_video_task_handler(task_id: int, task: TrainVideoTask) -> TaskSt
     # 视频训练的状态通过回调接口更新
     return TaskStatus.PENDING
         
-train_audio_queue = RQueue(
+train_audio_queue = TaskQueue(
     TRAIN_AUDIO_KEY,
     handler=train_audio_task_handler, 
     handle_sleep=60 * 2, 
     retry_sleep=60
 )
-train_video_queue = RQueue(
+train_video_queue = TaskQueue(
     TRAIN_VIDEO_KEY, 
     handler=train_video_task_handler, 
     handle_sleep=60 * 20, 
