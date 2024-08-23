@@ -2,7 +2,7 @@ import json
 from infra import logger
 from infra.r import r
 import time
-from typing import Callable, Any
+from typing import Callable, Any, Union
 import asyncio
 
 from models.task import Task, TaskStatus, create_task, update_task
@@ -21,7 +21,7 @@ class QTask():
         return cls(**data)
 
 class TaskQueue():
-    def __init__(self, name, handler: Callable[[int, any], TaskStatus | None], handle_sleep:int = 60 * 20, retry_sleep:int = 60):
+    def __init__(self, name, handler: Callable[[int, any], Union[TaskStatus, None]], handle_sleep:int = 60 * 20, retry_sleep:int = 60):
         """
             name: 区分任务队列
             handler: 处理任务的方法
@@ -58,7 +58,7 @@ class TaskQueue():
         """Processes tasks in the queue."""
         while True:
             if len(self.task_list) == 0:
-                time.sleep(5)
+                await asyncio.sleep(5)
                 continue
             
             task = self.task_list.pop(0)
@@ -74,7 +74,7 @@ class TaskQueue():
                 
                 self._save_queue()
                 logger.debug("process task success: %s", task)
-                time.sleep(self.handle_sleep)
+                await asyncio.sleep(self.handle_sleep)
             except Exception as e:
                 logger.error("process task error, task: %s, error: %s", task, e)
                 task.retry_count += 1
@@ -86,7 +86,7 @@ class TaskQueue():
                     self.task_list.append(task)
                     
                 self.__set_queue()
-                time.sleep(self.retry_sleep)
+                await asyncio.sleep(self.retry_sleep)
                 
     async def append(self, payload: dict, max_retry: int = 0) -> Task:
         """Appends a new task to the queue. return model Task"""
