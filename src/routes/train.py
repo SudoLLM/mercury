@@ -1,13 +1,13 @@
 import asyncio
 import os
 import shutil
+import httpx
 from typing import List, Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from common.task_queue import TaskQueue
 from models.task import TaskStatus
 from pydantic import BaseModel
-import requests
 from middleware.auth import getUserInfo
 from infra.logger import logger
 from models.file import query_file
@@ -34,23 +34,24 @@ class TrainVideoTask():
 
 async def train_video_task_handler(task_id: int, task: TrainVideoTask) -> TaskStatus:
     # talking-head是否存在正在进行的任务
-    response = requests.get("http://0.0.0.0:8000/talking-head/train-ready")
-    if not response.ok:
+    async with httpx.AsyncClient(timeout=None) as client:
+        response = client.get("http://0.0.0.0:8000/talking-head/train-ready")
+    if not response.status_code == 200:
         raise Exception(f"talking-head response error, code: {response.status_code}")
     if not response.json().get("ready", False):
         raise Exception("talking-head is not ready")
 
     # taking-head start train
-    response = requests.post(
-        "http://0.0.0.0:8000/talking-head/train",
-        json={
-            "speaker": task.speaker,
-            "callback_url": f"http://0.0.0.0:3333/internal/task/{task_id}",
-            "callback_method": "put",
-        },
-        headers={"Content-Type": "application/json"},
-    )
-    if not response.ok:
+    async with httpx.AsyncClient(timeout=None) as client:
+        response = client.post(
+            "http://0.0.0.0:8000/talking-head/train",
+            json={
+                "speaker": task.speaker,
+                "callback_url": f"http://0.0.0.0:3333/internal/task/{task_id}",
+                "callback_method": "put",
+            },
+        )
+    if not response.status_code == 200:
         raise Exception(f"talking-head response error, code: {response.status_code}")
     # 视频训练的状态通过回调接口更新
     return TaskStatus.PENDING
@@ -103,35 +104,35 @@ async def slice_for_cosy_voice(model_name: str, task_id: int, ref_dir_name: str)
         model_name,
     )
     createDir(output_dir_name)
+    async with httpx.AsyncClient(timeout=None) as client:
+        response = client.post(
+            "http://0.0.0.0:3336/audio/slice_audio",
+            json={
+                "audio_file": ref_dir_name,
+                "output_dir": output_dir_name,
+                "min_length": 8,
+                "max_length": 12,
+                "keep_silent": 0.5,
+                "sliding_slice": False
+            },
+        )
     
-    response = requests.post(
-        "http://0.0.0.0:3336/audio/slice_audio",
-        json={
-            "audio_file": ref_dir_name,
-            "output_dir": output_dir_name,
-            "min_length": 8,
-            "max_length": 12,
-            "keep_silent": 0.5,
-            "sliding_slice": False
-        },
-        headers={"Content-Type": "application/json"},
-    )
-    
-    if not response.ok:
+    if not response.status_code == 200:
         raise Exception("slice audio failed, code: {response.status_code}")
     
 # 训练rvc模型
 async def train_rvc(model_name: str, task_id: int, model_id: int, ref_dir_name: str, epoch: int):
-    response = requests.post(
-        "http://127.0.0.1:3334/train?name="
-        + model_name
-        + "&ref_dir_name="
-        + ref_dir_name
-        + "&epoch="
-        + str(epoch)
-    )
+    async with httpx.AsyncClient(timeout=None) as client:
+        response = client.post(
+            "http://127.0.0.1:3334/train?name="
+            + model_name
+            + "&ref_dir_name="
+            + ref_dir_name
+            + "&epoch="
+            + str(epoch)
+        )
 
-    if not response.ok:
+    if not response.status_code == 200:
         raise Exception("response error, code: {response.status_code}")
 
 @router.post("/audio_model")
