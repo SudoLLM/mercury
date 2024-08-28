@@ -14,7 +14,7 @@ from infra.file import get_file_absolute_path
 from middleware.auth import getUserInfo
 from infra.logger import logger
 from models.file import create_file, query_file
-from models.task import Task, TaskStatus, create_task, update_task
+from models.task import Task, TaskStatus, create_task, query_task, update_task
 from models.model import query_model, Model
 from routes.common import CommonSchemaConfig
 from utils.file import createDir
@@ -200,27 +200,21 @@ class InferText2AudioPayload():
         return json.dumps(self.__dict__)
         
 async def infer_text2audio_task_handler(task_id: int, payload_str: str ) -> None:
+    # TODO getTask 从中获取fileid
+    # 根据file 获取 文件路径
+    tasks = await query_task(task_id=task_id)
+    task = tasks[0]
+    
+    audiofile = await query_file(file_id=task.res["output_audio_file_id"])
+    output_audio_path = audiofile.path
+    output_dir_path = os.path.dirname(output_audio_path)
+    
     payload = InferText2AudioPayload(**json.loads(payload_str))
     models = await query_model(name=payload.model_name)
     model = models[0]
     rvc_model=model.audio_model
     rvc_pitch=model.audio_config.get('pitch', 0)
-    output_dir_path = gen_output_dir(payload.model_name, payload.user_id, task_id)
-    output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
-    audio_file = await create_file(output_audio_path, payload.user_id)
-    srt_file_id = 0
-    if payload.gen_srt:
-        output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
-        srt_file = await create_file(output_srt_path, payload.user_id)
-        srt_file_id = srt_file.id
-
-    await update_task(
-        task_id,
-        res={
-            "output_audio_file_id": audio_file.id,
-            "output_srt_file_id": srt_file_id,
-        },
-    )
+    
 
     if payload.mode == AudioMode.COSYVOICE:
         file_path = await cosy_infer(payload.text, payload.model_name, output_audio_path)
@@ -231,6 +225,8 @@ async def infer_text2audio_task_handler(task_id: int, payload_str: str ) -> None
         )
         
     if payload.gen_srt:
+        srtfile = await query_file(file_id=task.res["output_srt_file_id"])
+        output_srt_path = srtfile.path
         await srt_infer(file_path, output_srt_path, payload.text)
 
 infer_text2audio_queue = TaskQueue(
@@ -251,28 +247,16 @@ class InferText2VideoPayload():
         return json.dumps(self.__dict__)
         
 async def infer_text2video_task_handler(task_id: int, payload_str: str) -> TaskStatus:  
+    tasks = await query_task(task_id=task_id)
+    task = tasks[0]
+    audiofile = await query_file(file_id=task.res["output_audio_file_id"])
+    output_audio_path = audiofile.path
+    output_dir_path = os.path.dirname(output_audio_path)
+    
     payload = InferText2VideoPayload(**json.loads(payload_str))
     models = await query_model(name=payload.model_name)
     model = models[0]
-    output_dir_path = gen_output_dir(model.name, payload.user_id, task_id)
-    output_video_path = os.path.join(output_dir_path, f"{task_id}.mp4")
-    output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
-    audio_file = await create_file(output_audio_path, payload.user_id)
-    video_file = await create_file(output_video_path, payload.user_id)
-    
-    srt_file_id = 0
-    if payload.gen_srt:
-        output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
-        srt_file = await create_file(output_srt_path, payload.user_id)
-        srt_file_id = srt_file.id
-    await update_task(
-        task_id,
-        res={
-            "output_audio_file_id": audio_file.id,
-            "output_video_file_id": video_file.id,
-            "output_srt_file_id": srt_file_id,
-        },
-    )
+   
     if payload.mode == AudioMode.COSYVOICE:
         # file_path = await gpt_infer(body.text, model.name, output_audio_path)
         file_path = await cosy_infer(payload.text, model.name, output_audio_path)
@@ -283,9 +267,14 @@ async def infer_text2video_task_handler(task_id: int, payload_str: str) -> TaskS
         )
 
     if payload.gen_srt:
+        srtfile = await query_file(file_id=task.res["output_srt_file_id"])
+        output_srt_path = srtfile.path
         await srt_infer(file_path, output_srt_path, payload.text)
 
     # infer video asyncously
+    videofile = await query_file(file_id=task.res["output_video_file_id"])
+    output_video_path = videofile.path
+
     await internal_infer_video(file_path, model, output_video_path, task_id)
     return TaskStatus.PENDING
 
@@ -306,29 +295,18 @@ class InferAudio2VideoPayload():
         return json.dumps(self.__dict__)
         
 async def infer_audio2video_task_handler(task_id: int, payload_str: str) -> TaskStatus:
+    tasks = await query_task(task_id=task_id)
+    task = tasks[0]
+    input_audio_file = await query_file(file_id=task.res["input_audio_file_id"])
+    video_file = await query_file(file_id=task.res["output_video_file_id"])
+    
     payload = InferAudio2VideoPayload(**json.loads(payload_str))
     models = await query_model(name=payload.model_name)
     model = models[0]
-    
-    audio_file = await query_file(payload.audio_id)
-
-    output_dir_path = gen_output_dir(model.name, payload.user_id, task_id)
-
-    output_video_path = os.path.join(output_dir_path, f"{task_id}.mp4")
-
-    video_file = await create_file(output_video_path, payload.user_id)
-
-    await update_task(
-        task_id,
-        res={
-            "input_audio_file_id": audio_file.id,
-            "output_video_file_id": video_file.id,
-        },
-    )
 
     # infer video asyncously
     await internal_infer_video(
-        get_file_absolute_path(audio_file.path), model, output_video_path, task_id
+        get_file_absolute_path(input_audio_file.path), model, video_file.path, task_id
     )
     return TaskStatus.PENDING
     
@@ -368,6 +346,17 @@ async def infer_video(
             audio_id=file_id,
             user_id=user["user_id"],
         ).tostirng())
+        
+        output_dir_path = gen_output_dir(model.name, user["user_id"], task.id)
+        output_video_path = os.path.join(output_dir_path, f"{task.id}.mp4")
+        video_file = await create_file(output_video_path, user["user_id"])
+        await update_task(
+            task.id,
+            res={
+                "input_audio_file_id": audio_file.id,
+                "output_video_file_id": video_file.id,
+            },
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"{e}")
@@ -440,6 +429,27 @@ async def infer_text2video(body: Text2VideoRequest, req: Request):
             gen_srt=body.gen_srt,
             user_id=user["user_id"]
         ).tostirng())
+        task_id = task.id
+        output_dir_path = gen_output_dir(model.name, user["user_id"], task_id)
+        output_video_path = os.path.join(output_dir_path, f"{task_id}.mp4")
+        output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
+        audio_file = await create_file(output_audio_path, user["user_id"])
+        video_file = await create_file(output_video_path, user["user_id"])
+        
+        srt_file_id = 0
+        if body.gen_srt:
+            output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
+            srt_file = await create_file(output_srt_path, user["user_id"])
+            srt_file_id = srt_file.id
+        await update_task(
+            task_id,
+            res={
+                "output_audio_file_id": audio_file.id,
+                "output_video_file_id": video_file.id,
+                "output_srt_file_id": srt_file_id,
+            },
+        )
+        
     except:
         raise HTTPException(
             status_code=500, detail=f"e"
@@ -489,6 +499,25 @@ async def infer_text2audio(body: Text2AudioRequest, req: Request):
             gen_srt=body.gen_srt,
             user_id=user["user_id"],
         ).tostirng())
+        
+        task_id = task.id
+        output_dir_path = gen_output_dir(body.model_name, user["user_id"], task_id)
+        output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
+        audio_file = await create_file(output_audio_path, user["user_id"])
+        srt_file_id = 0
+        if body.gen_srt:
+            output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
+            srt_file = await create_file(output_srt_path, user["user_id"])
+            srt_file_id = srt_file.id
+
+        await update_task(
+            task_id,
+            res={
+                "output_audio_file_id": audio_file.id,
+                "output_srt_file_id": srt_file_id,
+            },
+        )
+        
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"{e}"
