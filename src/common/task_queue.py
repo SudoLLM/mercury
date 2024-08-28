@@ -5,7 +5,7 @@ import time
 from typing import Callable, Any, Union
 import asyncio
 
-from models.task import Task, TaskStatus, create_task, update_task
+from models.task import Task, TaskStatus, create_task, query_task, update_task
 
 
 class QTask():
@@ -68,29 +68,32 @@ class TaskQueue():
                 await asyncio.sleep(5)
                 continue
             
-            task = self.task_list.pop(0)
+            qtask = self.task_list.pop(0)
             
             try:
-                logger.debug("processing task: %s", task.to_dict())
+                logger.debug("processing task: %s", qtask.to_dict())
                 
-                task_status = await self.handler(task.task_id,task.payload)
+                task_status = await self.handler(qtask.task_id,qtask.payload)
                 await update_task(
-                    task.task_id, 
+                    qtask.task_id, 
                     status=task_status if task_status else TaskStatus.SUCCEEDED
                 )
                 
                 self.__set_queue()
-                logger.debug("process task success: %s", task)
+                logger.debug("process task success: %s", qtask.task_id)
                 await asyncio.sleep(self.handle_sleep)
             except Exception as e:
-                logger.error("process task error, task: %s, error: %s", task, e)
-                task.retry_count += 1
-                if task.retry_count > task.max_retry: 
-                    await update_task(task.task_id, status=TaskStatus.FAILED, res={
-                        "message": str(e),
-                    })
+                logger.error("process task error, task: %s, error: %s", qtask.to_dict(), e)
+                qtask.retry_count += 1
+                if qtask.retry_count > qtask.max_retry: 
+                    tasks = await query_task(task_id=qtask.task_id)
+                    if len(tasks) == 1:
+                        task = tasks[0]
+                        res = task.res
+                        res["message"] = str(e)
+                        await update_task(qtask.task_id, status=TaskStatus.FAILED, res=res)
                 else: 
-                    self.task_list.append(task)
+                    self.task_list.append(qtask)
                 self.__set_queue()
                 await asyncio.sleep(self.retry_sleep)
                 
