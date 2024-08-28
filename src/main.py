@@ -10,11 +10,20 @@ from routes.internal import router as internalRouter
 from routes.model import router as modelRouter
 from routes.train import router as trainRouter
 
+from routes.infer import infer_text2audio_queue, infer_audio2video_queue, infer_text2vedio_queue
+from routes.train import train_audio_queue, train_video_queue
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await database.connect()  # establish connection
     metadata.create_all(engine)  # init tables
+    
+    infer_text2audio_queue.schedule_task_processing()
+    infer_audio2video_queue.schedule_task_processing()
+    infer_text2vedio_queue.schedule_task_processing()
+    train_audio_queue.schedule_task_processing()
+    train_video_queue.schedule_task_processing()
+    
     yield
     await database.disconnect()
 

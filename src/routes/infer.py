@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Optional
 import uuid
@@ -158,7 +159,7 @@ async def gpt_infer(text: str, model_name: str, output_path: str):
 
 async def cosy_infer(text: str, model_name: str, output_path: str):
     async with httpx.AsyncClient(timeout=None) as client:
-        response = client.post(
+        response = await client.post(
             "http://127.0.0.1:3335/infer",
             json={
                 "text": text,
@@ -173,7 +174,7 @@ async def cosy_infer(text: str, model_name: str, output_path: str):
 
 async def srt_infer(audio_path: str, output_path: str, text: str = ""):
     async with httpx.AsyncClient(timeout=None) as client:
-        response = client.post(
+        response = await client.post(
             "http://127.0.0.1:3336/audio/gen_audio_srt",
             json={
                 "ref_text": text,
@@ -188,23 +189,25 @@ async def srt_infer(audio_path: str, output_path: str, text: str = ""):
 
 
 class InferText2AudioPayload():
-    def __init__(self, text: str, model_name: str, audio_profile: str , mode: AudioMode, gen_srt: bool, user_id: int, rvc_model: str, rvc_pitch: str):
+    def __init__(self, text: str, model_name: str, audio_profile: str , mode: AudioMode, gen_srt: bool, user_id: int):
         self.text = text
         self.model_name = model_name
         self.audio_profile = audio_profile
         self.mode = mode 
         self.gen_srt = gen_srt # 是否同步生成 字幕文件
         self.user_id = user_id
+    def tostirng(self):
+        return json.dumps(self.__dict__)
         
-async def infer_text2audio_task_handler(task_id: int, payload: InferText2AudioPayload) -> None:
+async def infer_text2audio_task_handler(task_id: int, payload_str: str ) -> None:
+    payload = InferText2AudioPayload(**json.loads(payload_str))
     models = await query_model(name=payload.model_name)
     model = models[0]
-    rvc_model=model.audio_model,
-    rvc_pitch=model.audio_config.get('pitch', 0),
+    rvc_model=model.audio_model
+    rvc_pitch=model.audio_config.get('pitch', 0)
     output_dir_path = gen_output_dir(payload.model_name, payload.user_id, task_id)
     output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
     audio_file = await create_file(output_audio_path, payload.user_id)
-    
     srt_file_id = 0
     if payload.gen_srt:
         output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
@@ -240,20 +243,20 @@ class InferText2VideoPayload():
     def __init__(self, text: str, model_name: str, audio_profile: str, mode: AudioMode, gen_srt: bool, user_id: int):
         self.text = text
         self.model_name = model_name
-        self.audio_profile: audio_profile
+        self.audio_profile = audio_profile
         self.mode = mode
         self.gen_srt = gen_srt
         self.user_id = user_id
+    def tostirng(self):
+        return json.dumps(self.__dict__)
         
-async def infer_text2video_task_handler(task_id: int, payload: InferText2VideoPayload) -> TaskStatus:        
+async def infer_text2video_task_handler(task_id: int, payload_str: str) -> TaskStatus:  
+    payload = InferText2VideoPayload(**json.loads(payload_str))
     models = await query_model(name=payload.model_name)
     model = models[0]
-
     output_dir_path = gen_output_dir(model.name, payload.user_id, task_id)
-
     output_video_path = os.path.join(output_dir_path, f"{task_id}.mp4")
     output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
-
     audio_file = await create_file(output_audio_path, payload.user_id)
     video_file = await create_file(output_video_path, payload.user_id)
     
@@ -262,8 +265,6 @@ async def infer_text2video_task_handler(task_id: int, payload: InferText2VideoPa
         output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
         srt_file = await create_file(output_srt_path, payload.user_id)
         srt_file_id = srt_file.id
-    
-
     await update_task(
         task_id,
         res={
@@ -272,13 +273,11 @@ async def infer_text2video_task_handler(task_id: int, payload: InferText2VideoPa
             "output_srt_file_id": srt_file_id,
         },
     )
-
     if payload.mode == AudioMode.COSYVOICE:
         # file_path = await gpt_infer(body.text, model.name, output_audio_path)
         file_path = await cosy_infer(payload.text, model.name, output_audio_path)
     else:
         file_path = await azure_tts(payload.text, payload.audio_profile, output_dir_path)
-
         file_path = await rvc_infer(
             file_path, model.audio_model, output_audio_path, model.audio_config.get("pitch", 0)
         )
@@ -287,7 +286,7 @@ async def infer_text2video_task_handler(task_id: int, payload: InferText2VideoPa
         await srt_infer(file_path, output_srt_path, payload.text)
 
     # infer video asyncously
-    internal_infer_video(file_path, model, output_video_path, task_id)
+    await internal_infer_video(file_path, model, output_video_path, task_id)
     return TaskStatus.PENDING
 
 
@@ -303,8 +302,11 @@ class InferAudio2VideoPayload():
         self.model_name=model_name
         self.audio_id=audio_id
         self.user_id=user_id
+    def tostirng(self):
+        return json.dumps(self.__dict__)
         
-async def infer_audio2video_task_handler(task_id: int, payload: InferAudio2VideoPayload) -> TaskStatus:
+async def infer_audio2video_task_handler(task_id: int, payload_str: str) -> TaskStatus:
+    payload = InferAudio2VideoPayload(**json.loads(payload_str))
     models = await query_model(name=payload.model_name)
     model = models[0]
     
@@ -325,7 +327,7 @@ async def infer_audio2video_task_handler(task_id: int, payload: InferAudio2Video
     )
 
     # infer video asyncously
-    internal_infer_video(
+    await internal_infer_video(
         get_file_absolute_path(audio_file.path), model, output_video_path, task_id
     )
     return TaskStatus.PENDING
@@ -360,12 +362,16 @@ async def infer_video(
             status_code=404, detail=f"file {file_id} not found")
 
     user = getUserInfo(req)
-
-    task = infer_audio2video_queue.append(InferAudio2VideoPayload(
-        model_name=model_name,
-        audio_id=file_id,
-        user_id=user.id,
-    ))
+    try:
+        task = await infer_audio2video_queue.append(InferAudio2VideoPayload(
+            model_name=model_name,
+            audio_id=file_id,
+            user_id=user["user_id"],
+        ).tostirng())
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"{e}")
+        
 
     return JSONResponse(
         {
@@ -381,7 +387,7 @@ async def internal_infer_video(
         f"audio_path: {audio_path}, output_video_path: {output_video_path}, model: {model.name}, task_id: {task_id}"
     )
     async with httpx.AsyncClient(timeout=None) as client:
-        response = client.post(
+        response = await client.post(
             "http://0.0.0.0:8000/talking-head/inference",
             json={
                 "input_audio_path": audio_path,
@@ -425,14 +431,19 @@ async def infer_text2video(body: Text2VideoRequest, req: Request):
             status_code=404, detail=f"model {body.model_name} not found"
         )
 
-    task = infer_text2vedio_queue.append(InferText2VideoPayload(
-        text=body.text,
-        model_name=body.model_name,
-        audio_profile=body.audio_profile,
-        mode=body.mode,
-        gen_srt=body.gen_srt,
-        user_id=user.id
-    ))
+    try:
+        task = await infer_text2vedio_queue.append(InferText2VideoPayload(
+            text=body.text,
+            model_name=body.model_name,
+            audio_profile=body.audio_profile,
+            mode=body.mode,
+            gen_srt=body.gen_srt,
+            user_id=user["user_id"]
+        ).tostirng())
+    except:
+        raise HTTPException(
+            status_code=500, detail=f"e"
+        )
 
     return JSONResponse(
         {
@@ -469,15 +480,19 @@ async def infer_text2audio(body: Text2AudioRequest, req: Request):
             status_code=404, detail=f"model {body.model_name} not found"
         )
 
-    task = infer_text2audio_queue.append(InferText2AudioPayload(
-        text=body.text,
-        model_name=body.model_name,
-        audio_profile=body.audio_profile,
-        mode=body.mode,
-        gen_srt=body.gen_srt,
-        user_id=user.id,
-        
-    ))
+    try:
+        task = await infer_text2audio_queue.append(InferText2AudioPayload(
+            text=body.text,
+            model_name=body.model_name,
+            audio_profile=body.audio_profile,
+            mode=body.mode,
+            gen_srt=body.gen_srt,
+            user_id=user["user_id"],
+        ).tostirng())
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"{e}"
+        )
 
     return JSONResponse(
         {

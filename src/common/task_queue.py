@@ -1,5 +1,5 @@
 import json
-from infra import logger
+from infra.logger import logger
 from infra.r import r
 import time
 from typing import Callable, Any, Union
@@ -9,19 +9,26 @@ from models.task import Task, TaskStatus, create_task, update_task
 
 
 class QTask():
-    def __init__(self, task_id, payload: dict, max_retry: int = 0):
+    def __init__(self, task_id: int, payload: str, max_retry: int = 0):
         self.payload = payload
         self.task_id = task_id
         self.retry_count = 0
         self.max_retry = max_retry
     
     @classmethod
-    def from_json(cls, json_str):
-        data = json.loads(json_str)
-        return cls(**data)
+    def from_json(cls, j):
+        return cls(task_id=j["task_id"], payload=j["payload"], max_retry = j["max_retry"])
+    
+    def to_dict(self):
+        return {
+            "payload": self.payload,
+            "task_id": self.task_id,
+            "retry_count": self.retry_count,
+            "max_retry": self.max_retry
+        }
 
 class TaskQueue():
-    def __init__(self, name, handler: Callable[[int, any], Union[TaskStatus, None]], handle_sleep:int = 60 * 20, retry_sleep:int = 60):
+    def __init__(self, name, handler: Callable[[int, any], Union[TaskStatus, None]], handle_sleep:int = 5, retry_sleep:int = 5):
         """
             name: 区分任务队列
             handler: 处理任务的方法
@@ -34,7 +41,6 @@ class TaskQueue():
         self.retry_sleep = retry_sleep
         self.key = self._generate_key()
         self.task_list = self._get_queue()
-        self._schedule_task_processing()
         
     def _generate_key(self):
         """Generates a unique key for the queue."""
@@ -42,14 +48,15 @@ class TaskQueue():
     
     def _get_queue(self):
         """Retrieves the queue from the redis."""
-        queue_data = r.get(self.key) or []
+        queue_data_b = r.get(self.key) or b'[]'
+        queue_data = json.loads(queue_data_b)
         return [QTask.from_json(task) for task in queue_data]
     
     def __set_queue(self):
         """Updates the queue in the redis."""
-        r.set(self.key, json.dumps( self.task_list ), ex=-1)
+        r.set(self.key, json.dumps( [task.to_dict() for task in self.task_list] ), ex=None)
     
-    def _schedule_task_processing(self):
+    def schedule_task_processing(self):
         """Schedules the task processing in a separate thread or process."""
         asyncio.create_task(self._process_tasks())
         
@@ -64,15 +71,15 @@ class TaskQueue():
             task = self.task_list.pop(0)
             
             try:
-                logger.debug("processing task: %s", task)
+                logger.debug("processing task: %s", task.to_dict())
                 
                 task_status = await self.handler(task.task_id,task.payload)
-                update_task(
+                await update_task(
                     task.task_id, 
-                    status=task_status if task_status else TaskStatus.SUCCESS
+                    status=task_status if task_status else TaskStatus.SUCCEEDED
                 )
                 
-                self._save_queue()
+                self.__set_queue()
                 logger.debug("process task success: %s", task)
                 await asyncio.sleep(self.handle_sleep)
             except Exception as e:
@@ -84,12 +91,13 @@ class TaskQueue():
                     })
                 else: 
                     self.task_list.append(task)
-                    
                 self.__set_queue()
                 await asyncio.sleep(self.retry_sleep)
                 
-    async def append(self, payload: dict, max_retry: int = 0) -> Task:
+    async def append(self, payload: str, max_retry: int = 0) -> Task:
         """Appends a new task to the queue. return model Task"""
+        if len(self.task_list) >= 10:
+            raise Exception("队列超出最大长度限制")
         task = await create_task()
         qt = QTask(task_id=task.id, payload=payload, max_retry=max_retry)
         
