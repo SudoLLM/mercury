@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from typing import Optional
@@ -284,7 +285,7 @@ infer_text2vedio_queue = TaskQueue(
     "INFER_TEXT2VIDEO",
     handler=infer_text2video_task_handler,
     handle_sleep=1,
-    max_parallel_tasks=2
+    max_parallel_tasks=1
 )
 
 
@@ -317,7 +318,7 @@ infer_audio2video_queue = TaskQueue(
     "INFER_TAUDIO2VIDEO",
     handler=infer_audio2video_task_handler,
     handle_sleep=1,
-    max_parallel_tasks=2
+    max_parallel_tasks=1
 )
 
 class InferVideoResponse(BaseModel):
@@ -378,6 +379,17 @@ async def internal_infer_video(
     logger.debug(
         f"audio_path: {audio_path}, output_video_path: {output_video_path}, model: {model.name}, task_id: {task_id}"
     )
+    while True:
+        async with httpx.AsyncClient(timeout=None) as client:
+            response = await client.get("http://0.0.0.0:8000/talking-head/infer-ready")
+        if response.status_code != 200:
+            raise Exception(f"status_code {response.status_code}, {response.json()}")
+        if response.json().get("ready", True):
+            break
+        logger.debug("等待进行中的推理任务完成")
+        await asyncio.sleep(1)
+    
+    
     async with httpx.AsyncClient(timeout=None) as client:
         response = await client.post(
             "http://0.0.0.0:8000/talking-head/inference",
@@ -417,6 +429,10 @@ async def infer_text2video(body: Text2VideoRequest, req: Request):
     logger.debug("user: %s", user)
 
     models = await query_model(name=body.model_name)
+    if len(models) == 0:
+        raise HTTPException(
+            status_code=404, detail=f"model {body.model_name} not found"
+        )
     model = models[0]
     if model is None:
         raise HTTPException(
@@ -453,9 +469,9 @@ async def infer_text2video(body: Text2VideoRequest, req: Request):
             },
         )
         
-    except:
+    except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"e"
+            status_code=500, detail=f"error: {e}"
         )
 
     return JSONResponse(
