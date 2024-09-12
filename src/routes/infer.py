@@ -233,6 +233,7 @@ infer_text2audio_queue = TaskQueue(
     "INFER_TEXT2AUDIO",
     handler=infer_text2audio_task_handler,
     handle_sleep=1,
+    max_parallel_tasks=2
 )
 
 class InferText2VideoPayload():
@@ -283,6 +284,7 @@ infer_text2vedio_queue = TaskQueue(
     "INFER_TEXT2VIDEO",
     handler=infer_text2video_task_handler,
     handle_sleep=1,
+    max_parallel_tasks=2
 )
 
 
@@ -315,6 +317,7 @@ infer_audio2video_queue = TaskQueue(
     "INFER_TAUDIO2VIDEO",
     handler=infer_audio2video_task_handler,
     handle_sleep=1,
+    max_parallel_tasks=2
 )
 
 class InferVideoResponse(BaseModel):
