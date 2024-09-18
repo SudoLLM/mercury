@@ -344,26 +344,23 @@ async def infer_video(
             status_code=404, detail=f"file {file_id} not found")
 
     user = getUserInfo(req)
-    try:
-        task = await infer_audio2video_queue.append(InferAudio2VideoPayload(
-            model_name=model_name,
-            audio_id=file_id,
-            user_id=user["user_id"],
-        ).tostirng())
-        
-        output_dir_path = gen_output_dir(model.name, user["user_id"], task.id)
-        output_video_path = os.path.join(output_dir_path, f"{task.id}.mp4")
-        video_file = await create_file(output_video_path, user["user_id"])
-        await update_task(
-            task.id,
-            res={
-                "input_audio_file_id": audio_file.id,
-                "output_video_file_id": video_file.id,
-            },
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"{e}")
+    task = await infer_audio2video_queue.append(InferAudio2VideoPayload(
+        model_name=model_name,
+        audio_id=file_id,
+        user_id=user["user_id"],
+    ).tostirng())
+    
+    output_dir_path = gen_output_dir(model.name, user["user_id"], task.id)
+    output_video_path = os.path.join(output_dir_path, f"{task.id}.mp4")
+    video_file = await create_file(output_video_path, user["user_id"])
+    await update_task(
+        task.id,
+        res={
+            "input_audio_file_id": audio_file.id,
+            "output_video_file_id": video_file.id,
+        },
+    )
+   
         
 
     return JSONResponse(
@@ -439,40 +436,34 @@ async def infer_text2video(body: Text2VideoRequest, req: Request):
             status_code=404, detail=f"model {body.model_name} not found"
         )
 
-    try:
-        task = await infer_text2vedio_queue.append(InferText2VideoPayload(
-            text=body.text,
-            model_name=body.model_name,
-            audio_profile=body.audio_profile,
-            mode=body.mode,
-            gen_srt=body.gen_srt,
-            user_id=user["user_id"]
-        ).tostirng())
-        task_id = task.id
-        output_dir_path = gen_output_dir(model.name, user["user_id"], task_id)
-        output_video_path = os.path.join(output_dir_path, f"{task_id}.mp4")
-        output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
-        audio_file = await create_file(output_audio_path, user["user_id"])
-        video_file = await create_file(output_video_path, user["user_id"])
-        
-        srt_file_id = 0
-        if body.gen_srt:
-            output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
-            srt_file = await create_file(output_srt_path, user["user_id"])
-            srt_file_id = srt_file.id
-        await update_task(
-            task_id,
-            res={
-                "output_audio_file_id": audio_file.id,
-                "output_video_file_id": video_file.id,
-                "output_srt_file_id": srt_file_id,
-            },
-        )
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"error: {e}"
-        )
+    task = await infer_text2vedio_queue.append(InferText2VideoPayload(
+        text=body.text,
+        model_name=body.model_name,
+        audio_profile=body.audio_profile,
+        mode=body.mode,
+        gen_srt=body.gen_srt,
+        user_id=user["user_id"]
+    ).tostirng())
+    task_id = task.id
+    output_dir_path = gen_output_dir(model.name, user["user_id"], task_id)
+    output_video_path = os.path.join(output_dir_path, f"{task_id}.mp4")
+    output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
+    audio_file = await create_file(output_audio_path, user["user_id"])
+    video_file = await create_file(output_video_path, user["user_id"])
+    
+    srt_file_id = 0
+    if body.gen_srt:
+        output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
+        srt_file = await create_file(output_srt_path, user["user_id"])
+        srt_file_id = srt_file.id
+    await update_task(
+        task_id,
+        res={
+            "output_audio_file_id": audio_file.id,
+            "output_video_file_id": video_file.id,
+            "output_srt_file_id": srt_file_id,
+        },
+    )
 
     return JSONResponse(
         {
@@ -509,39 +500,33 @@ async def infer_text2audio(body: Text2AudioRequest, req: Request):
             status_code=404, detail=f"model {body.model_name} not found"
         )
 
-    try:
-        task = await infer_text2audio_queue.append(InferText2AudioPayload(
-            text=body.text,
-            model_name=body.model_name,
-            audio_profile=body.audio_profile,
-            mode=body.mode,
-            gen_srt=body.gen_srt,
-            user_id=user["user_id"],
-        ).tostirng())
-        
-        task_id = task.id
-        output_dir_path = gen_output_dir(body.model_name, user["user_id"], task_id)
-        output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
-        audio_file = await create_file(output_audio_path, user["user_id"])
-        srt_file_id = 0
-        if body.gen_srt:
-            output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
-            srt_file = await create_file(output_srt_path, user["user_id"])
-            srt_file_id = srt_file.id
+    task = await infer_text2audio_queue.append(InferText2AudioPayload(
+        text=body.text,
+        model_name=body.model_name,
+        audio_profile=body.audio_profile,
+        mode=body.mode,
+        gen_srt=body.gen_srt,
+        user_id=user["user_id"],
+    ).tostirng())
+    
+    task_id = task.id
+    output_dir_path = gen_output_dir(body.model_name, user["user_id"], task_id)
+    output_audio_path = os.path.join(output_dir_path, f"{task_id}.wav")
+    audio_file = await create_file(output_audio_path, user["user_id"])
+    srt_file_id = 0
+    if body.gen_srt:
+        output_srt_path = os.path.join(output_dir_path, f"{task_id}.srt")
+        srt_file = await create_file(output_srt_path, user["user_id"])
+        srt_file_id = srt_file.id
 
-        await update_task(
-            task_id,
-            res={
-                "output_audio_file_id": audio_file.id,
-                "output_srt_file_id": srt_file_id,
-            },
-        )
+    await update_task(
+        task_id,
+        res={
+            "output_audio_file_id": audio_file.id,
+            "output_srt_file_id": srt_file_id,
+        },
+    )
         
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"{e}"
-        )
-
     return JSONResponse(
         {
             "task_id": task.id,

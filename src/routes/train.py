@@ -155,29 +155,24 @@ async def train_audio_model(
         model = models[0]
     await update_model(model.id, audio_model=body.model_name + ".pth")
 
-    try:
-        ref_dir_name = os.path.join(
-            "/home/ubuntu/Projects/Retrieval-based-Voice-Conversion-WebUI/reference",
-            body.model_name,
-        )
+    ref_dir_name = os.path.join(
+        "/home/ubuntu/Projects/Retrieval-based-Voice-Conversion-WebUI/reference",
+        body.model_name,
+    )
 
-        # delete ref_dir_name
-        shutil.rmtree(ref_dir_name, ignore_errors=True)
+    # delete ref_dir_name
+    shutil.rmtree(ref_dir_name, ignore_errors=True)
 
-        createDir(ref_dir_name)
+    createDir(ref_dir_name)
 
-        for file_id in body.file_ids:
-            file = await query_file(file_id)
-            file_name = os.path.basename(file.path)
-            new_file_path = os.path.join(ref_dir_name, file_name)
-            shutil.copy(file.path, new_file_path)
-            
-    
-        task = await train_audio_queue.append(TrainAudioTask(body.model_name, ref_dir_name, body.epoch).tostring())
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"{e}"
-        )
+    for file_id in body.file_ids:
+        file = await query_file(file_id)
+        file_name = os.path.basename(file.path)
+        new_file_path = os.path.join(ref_dir_name, file_name)
+        shutil.copy(file.path, new_file_path)
+        
+
+    task = await train_audio_queue.append(TrainAudioTask(body.model_name, ref_dir_name, body.epoch).tostring())
 
     return JSONResponse(
         {
@@ -210,31 +205,26 @@ async def train_video_model(
 
     await update_model(model.id, video_model=body.speaker)
 
-    try:
-        ref_dir_name = os.path.join(
-            "/home/chaiyujin/talking-head-v0.1/user-data/clip",
-            body.speaker,
-        )
+    ref_dir_name = os.path.join(
+        "/home/chaiyujin/talking-head-v0.1/user-data/clip",
+        body.speaker,
+    )
 
-        # delete ref_dir_name
-        shutil.rmtree(ref_dir_name, ignore_errors=True)
+    # delete ref_dir_name
+    shutil.rmtree(ref_dir_name, ignore_errors=True)
 
-        createDir(ref_dir_name)
+    createDir(ref_dir_name)
 
-        count = 0
+    count = 0
 
-        for file_id in body.file_ids:
-            file = await query_file(file_id)
-            file_name = str(count).zfill(2) + ".mp4"
-            new_file_path = os.path.join(ref_dir_name, file_name)
-            shutil.copy(file.path, new_file_path)
-            count = count + 1
+    for file_id in body.file_ids:
+        file = await query_file(file_id)
+        file_name = str(count).zfill(2) + ".mp4"
+        new_file_path = os.path.join(ref_dir_name, file_name)
+        shutil.copy(file.path, new_file_path)
+        count = count + 1
 
-        task = await train_video_queue.append(TrainVideoTask(body.speaker).tostring())
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"{e}"
-        )
+    task = await train_video_queue.append(TrainVideoTask(body.speaker).tostring())
 
     return JSONResponse(
         {
