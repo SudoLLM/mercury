@@ -1,5 +1,7 @@
 from typing import Any, Optional
+
 import ormar
+
 from infra.db import BaseModel, base_ormar_config
 
 
@@ -28,8 +30,8 @@ async def create_model(**kwargs: Any):
 
 
 async def update_model(model_id: int, **kwargs: Any):
-    t = await Model.objects.get(id=model_id)
-    model = await t.update(**kwargs)
+    model = await Model.objects.get(id=model_id)
+    model = await model.update(**kwargs)
     return model
 
 

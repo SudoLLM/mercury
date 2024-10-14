@@ -1,5 +1,7 @@
 from typing import Any, Optional
+
 import ormar
+
 from infra.db import BaseModel, base_ormar_config
 from infra.token import get_token, gen_token, set_token
 
@@ -7,7 +9,6 @@ from infra.token import get_token, gen_token, set_token
 class User(BaseModel):
     ormar_config = base_ormar_config.copy(tablename="user")
 
-    id: Optional[int] = ormar.Integer(primary_key=True, autoincrement=True)
     account: str = ormar.String(max_length=100, unique=True)
     password: str = ormar.String(max_length=100)
 
@@ -16,11 +17,11 @@ def query_user(user_id: Optional[int]):
     q = User.objects
     if user_id is not None:
         q = q.filter(id=user_id)
-    list = q.all()
+    users = q.all()
     # remove all password
-    for item in list:
+    for item in users:
         item.password = ""
-    return list
+    return users
 
 
 def delete_user(user_id: int):
@@ -34,7 +35,7 @@ async def create_user(account, password):
 
 
 async def update_user(user_id: int, **kwargs: Any):
-    t = await user.objects.get(id=user_id)
+    t = await User.objects.get(id=user_id)
     user = await t.update(**kwargs)
     user.password = ""
     return user

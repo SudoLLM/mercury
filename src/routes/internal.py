@@ -1,9 +1,8 @@
-from typing import Optional
 from fastapi import APIRouter
-import models.task as taskModel
-from infra.logger import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
+import models.task as task_model
+from infra.logger import logger
 
 router = APIRouter(
     prefix="/internal",
@@ -22,10 +21,10 @@ async def get_tasks(task_id: int, task: Body):
     logger.debug(f"task_id: {task_id}, task: {task}")
 
     m = {
-        2: taskModel.TaskStatus.PENDING,
-        3: taskModel.TaskStatus.SUCCEEDED,
-        4: taskModel.TaskStatus.FAILED,
+        2: task_model.TaskStatus.PENDING,
+        3: task_model.TaskStatus.SUCCEEDED,
+        4: task_model.TaskStatus.FAILED,
     }
     if m[task.status] is None:
         return {"error": f"Unknown status: {task.status}"}
-    return await taskModel.update_task(task_id, status=m[task.status])
+    return await task_model.update_task(task_id, status=m[task.status])

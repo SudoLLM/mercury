@@ -1,6 +1,8 @@
-from infra.r import r
 from datetime import datetime, timedelta
+
 import jwt
+
+from infra.r import r
 
 _secret_key = "mercurymercury"
 _redis_key = "mercury_token"
@@ -20,7 +22,7 @@ def gen_token(user_id: int, username: str):
     payload_data = {
         "user_id": user_id,
         "username": username,
-        "exp": datetime.utcnow() + timedelta(days=7),
+        "exp": datetime.now() + timedelta(days=7),
     }
     token = jwt.encode(payload_data, _secret_key, algorithm=_algorithm)
     return token
@@ -38,7 +40,7 @@ def check_token(token: str):
     res = decode_token(token)
     # check if token expired
     exp_datetime = datetime.fromtimestamp(res["exp"])
-    return datetime.utcnow() < exp_datetime
+    return datetime.now() < exp_datetime
 
 
 def decode_token(token: str):

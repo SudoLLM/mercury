@@ -1,7 +1,7 @@
 import os
 
 
-def createDir(dir_path: str):
+def create_dir(dir_path: str):
     os.makedirs(dir_path, exist_ok=True)
     owner_uid = 1000
     owner_gid = 1000
