@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
 import ormar
 
@@ -8,12 +8,11 @@ from infra.db import BaseModel, base_ormar_config
 class Model(BaseModel):
     ormar_config = base_ormar_config.copy(tablename="model")
 
-    id: Optional[int] = ormar.Integer(primary_key=True, autoincrement=True)
-    name: Optional[str] = ormar.String(max_length=100, unique=True)
-    audio_model: Optional[str] = ormar.String(default="", max_length=100)
-    audio_config: any = ormar.JSON(default={})
-    video_model: Optional[str] = ormar.String(default="", max_length=100)
-    video_config: any = ormar.JSON(default={})
+    name: str = ormar.String(max_length=100, unique=True)
+    audio_model: Optional[str] = ormar.String(default="", max_length=100, comment="RVC model path")
+    audio_config: Dict[str, Any] = ormar.JSON(default={}, comment="pitch")
+    video_model: Optional[str] = ormar.String(default="", max_length=100, comment="talking head speaker")
+    video_config: Dict[str, Any] = ormar.JSON(default={}, comment="preview_image_id")
 
 
 def query_model(name: Optional[str] = None, model_id: Optional[int] = None):

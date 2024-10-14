@@ -1,29 +1,56 @@
-from typing import List, Optional
-from fastapi import APIRouter
-import models.task as task_model
+from typing import Dict
 
+from celery.result import AsyncResult
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+
+from middleware.auth import get_user_info
+from models.task import query_task, TaskStatus
 
 router = APIRouter(
     prefix="/tasks",
 )
 
 
-@router.get("", response_model=List[task_model.Task])
-async def get_tasks(task_id: Optional[int] = None):
-    res = await task_model.query_task(task_id)
-    return res
+class TaskResponse(BaseModel):
+    id: int
+    res: Dict[str, int]
+    status: TaskStatus
+    res_status: Dict[str, str]
 
 
-@router.post("", response_model=task_model.Task)
-async def create_task():
-    return await task_model.create_task()
+res_keys = ["output_audio_file", "output_srt_file", "output_video_file"]
 
 
-@router.put("/{task_id}", response_model=task_model.Task)
-async def update_task(task_id: int, task: task_model.Task):
-    return await task_model.update_task(task_id, status=task.status)
+@router.get("", response_model=TaskResponse)
+async def get_task(task_id: int, req: Request):
+    user = get_user_info(req)
+    user_id = user["user_id"]
 
+    task = await query_task(task_id=task_id, user_id=user_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
 
-@router.delete("/{task_id}", response_model=int)
-async def delete_task(task_id: int):
-    return await task_model.delete_task(task_id)
+    status = TaskStatus.SUCCEEDED
+    res, res_status = {}, {}
+    for rid in task.celery_ids:
+        r = AsyncResult(rid)
+        # set status
+        if status == TaskStatus.SUCCEEDED:
+            if r.state == "FAILURE":
+                status = TaskStatus.FAILED
+            elif r.state == "PENDING":
+                status = TaskStatus.PENDING
+            elif r.state != "SUCCESS":
+                status = TaskStatus.UNKNOWN
+        # set res
+        if r.state == "SUCCESS":
+            for v in ["output_audio_file", "output_srt_file", "output_video_file"]:
+                key_k, id_k = f"{v}_key", f"{v}_id"
+                if key_k in task.res and r.result == task.res[key_k]:
+                    res[id_k] = task.res[id_k]
+                    break
+        # set res_status
+        res_status[rid] = r.state
+
+    return TaskResponse(id=task.id, res=res, status=status, res_status=res_status)

@@ -1,38 +1,101 @@
-version: '3'
+x-common-cpu-config: &cpu-config
+  logging:
+    options:
+      max-size: "50mb"
+  restart: always
+  depends_on:
+    - redis
+  env_file:
+    - .env.celery
+  volumes:
+    - ./cos:/cos
+x-common-gpu-config: &gpu-config
+  <<: *cpu-config
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - capabilities: [ gpu ]
+
+version: "3"
 
 services:
   db:
     image: mysql:5.7
+    logging:
+      options:
+        max-size: "50mb"
     restart: always
-    container_name: mercury_db
     environment:
       MYSQL_DATABASE: mercury
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     volumes:
-      - db_data:/var/lib/mysql
-      - ./conf.d:/etc/mysql/conf.d
-    network_mode: host
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      default:
+        aliases:
+          - mercury_db
   redis:
     image: redis:latest
+    logging:
+      options:
+        max-size: "50mb"
     restart: always
-    container_name: mercury_redis
     volumes:
-      - redis_data:/data
+      - ./data/redis:/data
+    networks:
+      default:
+        aliases:
+          - mercury_redis
     ports:
-      - "6345:6345"
-    command: --port 6345 --requirepass ${REDIS_PASSWORD}
+      - "9045:6345"
+    command: redis-server --port 6345 --requirepass ${REDIS_PASSWORD}
   mercury:
-    image: mercury:latest
-    restart: always
-    container_name: mercury
+    image: mercury:v0.1-infer
+    <<: *cpu-config
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      - redis
+      - db
+    ports:
+      - "9033:3333"
+  flower:
+    image: flower:v0.1-infer
+    <<: *cpu-config
+    # TODO: auth
+    environment:
+      FLOWER_UNAUTHENTICATED_API: true
+    ports:
+      - "9055:5555"
     volumes:
-      - .env:/app/.env
-      - /data:/data
-      - /home:/home
-      - /tmp:/tmp
-    network_mode: host
+      - ./data/flower:/app/flower/data
 
+  # workers
+  cosy_voice:
+    image: cosy_voice:v0.1-infer
+    <<: *gpu-config
+  azure:
+    image: azure:v0.1-infer
+    <<: *cpu-config
+    environment:
+      AZURE_SPEECH_KEY: ${AZURE_SPEECH_KEY}
+      AZURE_SPEECH_REGION: ${AZURE_SPEECH_REGION}
+  rvc:
+    image: rvc:v0.1-infer
+    <<: *gpu-config
+  srt:
+    image: srt:v0.1-infer
+    <<: *gpu-config
+    environment:
+      EMPTY_CACHE: true
+  talking_head:
+    image: talking_head:v0.1-infer
+    <<: *gpu-config
+    working_dir: /app/talking-head-v0.2
+    command: celery -A talking_head_celery worker -l INFO -P solo -Q talking_head_infer -n talking_head_worker
 
-volumes:
-  db_data:
-  redis_data:
+networks:
+  default:
+    driver: bridge

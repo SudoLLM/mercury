@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import jwt
 
-from infra.r import r
+from infra.redis_ import redis_cli
 
 _secret_key = "mercurymercury"
 _redis_key = "mercury_token"
@@ -15,7 +15,7 @@ def gen_token_key(user_id: int):
 
 
 def get_token(user_id: int):
-    return r.get(gen_token_key(user_id))
+    return redis_cli.get(gen_token_key(user_id))
 
 
 def gen_token(user_id: int, username: str):
@@ -29,11 +29,11 @@ def gen_token(user_id: int, username: str):
 
 
 def set_token(user_id: int, token: str):
-    return r.set(gen_token_key(user_id), token, ex=_expire_time)
+    return redis_cli.set(gen_token_key(user_id), token, ex=_expire_time)
 
 
 def clear_token(user_id: int):
-    return r.delete(gen_token_key(user_id))
+    return redis_cli.delete(gen_token_key(user_id))
 
 
 def check_token(token: str):

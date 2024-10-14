@@ -1,14 +1,20 @@
-FROM python:3.9.15
+FROM python:3.10.14
 
-WORKDIR /app
+WORKDIR /app/mercury
 
-COPY ./requirements.txt /app/
+COPY ./requirements.txt /app/mercury/requirements.txt
 
-RUN pip config set global.index-url https://mirrors.tencentyun.com/pypi/simple && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
+    pip config set global.trusted-host repo.huaweicloud.com && \
+    pip config set global.timeout 120 && \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt
 
-WORKDIR /app/src
+# 使用初始源, 因为镜像不够新
+RUN pip install -i https://pypi.org/simple mcelery==0.1.0
 
-COPY ./src /app/src
+WORKDIR /app/mercury/src
+
+COPY ./src /app/mercury/src
 
 ENTRYPOINT uvicorn main:app --host 0.0.0.0 --port 3333

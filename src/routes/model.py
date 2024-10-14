@@ -1,15 +1,12 @@
-import os
 from typing import List, Optional
-from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Response
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Response, Request
 from pydantic import BaseModel
 
-import models.file as file_model
 import models.model as model_model
-from infra.file import WORKSPACE
 from infra.logger import logger
+from middleware.auth import get_user_info
+from routes.file import _download_file
 
 router = APIRouter(
     prefix="/models",
@@ -62,7 +59,10 @@ class ImageResponse(Response):
 
 
 @router.get("/preview_image", response_class=ImageResponse)
-async def get_preview_image(model_id: Optional[int] = None, model_name: Optional[str] = None):
+async def get_preview_image(req: Request, model_id: Optional[int] = None, model_name: Optional[str] = None):
+    user = get_user_info(req)
+    user_id = user["user_id"]
+
     res = await model_model.query_model(name=model_name, model_id=model_id)
     model = res[0]
     if model is None:
@@ -73,14 +73,4 @@ async def get_preview_image(model_id: Optional[int] = None, model_name: Optional
     if "preview_image_id" not in model.video_config:
         raise HTTPException(status_code=404, detail="preview_image_id not found")
 
-    file_id = model.video_config["preview_image_id"]
-
-    file = await file_model.query_file(file_id)
-
-    if file is None:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    base_name = os.path.basename(file.path)
-    encoded_basename = quote(base_name)
-
-    return FileResponse(os.path.join(WORKSPACE, file.path), filename=encoded_basename)
+    return await _download_file(file_id=model.video_config["preview_image_id"], user_id=user_id)

@@ -1,38 +1,66 @@
 import os
-from urllib.parse import quote
+import shutil
+import uuid
+from mimetypes import guess_type
 
 from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
-from starlette.responses import FileResponse
+from mcelery.cos import get_local_path, upload_cos_file, download_cos_file, cos_client, cos_bucket
+from starlette.responses import RedirectResponse, FileResponse
 
-import models.file as file_model
-from infra.file import WORKSPACE, save_file
 from middleware.auth import get_user_info
+from models.file import File, create_file
+
+
+async def _download_file(file_id: int, user_id: int, media_type: str = None) -> Response:
+    file = await File.objects.filter(id=file_id, user_id=user_id).first()
+    if file is None:
+        raise HTTPException(status_code=404, detail="file not found")
+
+    if media_type is None:
+        media_type = guess_type(file.name)[0] or "application/octet-stream"
+
+    if os.getenv("DOWNLOAD_REDIRECT"):
+        return RedirectResponse(
+            url=cos_client.get_presigned_url(
+                Bucket=cos_bucket,
+                Key=file.key,
+                Method="GET",
+                Expired=300,
+                Params={
+                    "response-content-type": media_type,
+                    "response-content-disposition": f"attachment; filename={file.name}",
+                },
+            )
+        )
+
+    return FileResponse(
+        path=download_cos_file(file.key),
+        media_type=media_type,
+        filename=file.name,
+    )
+
 
 router = APIRouter(
     prefix="/file",
 )
 
 
-@router.post("/upload", response_model=file_model.File)
+@router.post("/upload", response_model=File)
 async def upload_video(
     file: UploadFile,
-    model_name: str,
     req: Request,
 ):
     user = get_user_info(req)
     user_id = user["user_id"]
 
-    raw_dir_path = os.path.join(
-        WORKSPACE,
-        str(user_id),
-        model_name,
-        "_raw",
-    )
-
-    file_path = os.path.join(raw_dir_path, file.filename)
-
-    await save_file(file, file_path)
-    return await file_model.create_file(file_path, user_id)
+    key = f"upload/{uuid.uuid4().hex}"
+    # write to local
+    with get_local_path(key).open("wb") as writer:
+        shutil.copyfileobj(file.file, writer)
+    # create and upload
+    file_model = await create_file(name=file.filename, key=key, user_id=user_id)
+    upload_cos_file(key)
+    return file_model
 
 
 class DownloadResponse(Response):
@@ -44,18 +72,4 @@ class DownloadResponse(Response):
 async def download_file(file_id: int, req: Request):
     user = get_user_info(req)
     user_id = user["user_id"]
-
-    res = await file_model.query_file(file_id)
-    if not res:
-        raise HTTPException(status_code=404, detail="file not found")
-
-    if res.user_id != user_id:
-        raise HTTPException(status_code=403, detail="no permission")
-    base_name = os.path.basename(res.path)
-    encoded_basename = quote(base_name)
-
-    return FileResponse(
-        res.path,
-        media_type="application/octet-stream",
-        filename=encoded_basename,
-    )
+    return await _download_file(file_id=file_id, user_id=user_id, media_type="application/octet-stream")
