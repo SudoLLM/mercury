@@ -1,6 +1,2 @@
 azure-cognitiveservices-speech==1.40.0
-
-celery==5.4.0
-# https://github.com/celery/celery/blob/main/requirements/extras/redis.txt
-redis>=4.5.2,<6.0.0,!=4.5.5
-cos-python-sdk-v5==1.9.31
+https://gitdl.cn/https://github.com/SudoLLM/mcelery/releases/download/0.1.0/mcelery-0.1.0-py3-none-any.whl

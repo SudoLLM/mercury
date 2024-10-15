@@ -1,20 +1,21 @@
-FROM python:3.10.14
-
-WORKDIR /app/mercury
-
-COPY ./requirements.txt /app/mercury/requirements.txt
+FROM python:3.10.15-slim
 
 RUN pip config set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
     pip config set global.trusted-host repo.huaweicloud.com && \
     pip config set global.timeout 120 && \
-    pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip config set global.no-cache-dir True && \
+    pip install --upgrade pip
 
-# 使用初始源, 因为镜像不够新
-RUN pip install -i https://pypi.org/simple mcelery==0.1.0
+RUN sed -i "s@deb.debian.org@mirrors.huaweicloud.com@g" /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && \
+    # for mysqlclient
+    apt-get install -y pkg-config default-libmysqlclient-dev build-essential
 
-WORKDIR /app/mercury/src
 
-COPY ./src /app/mercury/src
+WORKDIR /app/mercury
 
-ENTRYPOINT uvicorn main:app --host 0.0.0.0 --port 3333
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY ./src .
+CMD uvicorn main:app --host 0.0.0.0 --port 3333
