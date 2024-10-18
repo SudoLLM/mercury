@@ -93,8 +93,10 @@ services:
   talking_head:
     image: talking_head:v0.1-infer
     <<: *gpu-config
-    working_dir: /app/talking-head-v0.2
-    command: celery -A talking_head_celery worker -l INFO -P solo -Q talking_head_infer -n talking_head_worker
+    volumes:
+      - ./cos:/cos
+      - ./data/talking-head/dnr/exp_runs:/app/talking-head/dnr/exp_runs
+      - ./data/talking-head/user-data:/app/talking-head/user-data
 
 networks:
   default:
