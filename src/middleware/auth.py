@@ -12,7 +12,7 @@ def get_user_info(request: Request):
     return getattr(request.state, "user", None)
 
 
-no_auth_path = ["/openapi.json", "/user/login", "/docs", "/internal.*"]
+no_auth_path = ["/openapi.json", "/user/login", "/docs", "/flame/*"]
 
 
 class AuthMiddleware(BaseHTTPMiddleware):

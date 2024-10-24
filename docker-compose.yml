@@ -59,6 +59,10 @@ services:
     depends_on:
       - redis
       - db
+    networks:
+      default:
+        aliases:
+          - mercury_api
     ports:
       - "9033:3333"
   flower:

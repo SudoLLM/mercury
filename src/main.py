@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from infra.db import database, metadata, engine
+from infra.logger import logger
 from middleware.auth import AuthMiddleware
 from middleware.exception import ExceptionMiddleware
 from routes.file import router as file_router
@@ -34,3 +35,9 @@ app.include_router(infer_router)
 app.include_router(file_router)
 app.include_router(user_router)
 app.include_router(model_router)
+
+if os.getenv("WITH_FLAME"):
+    from flame_vendor import router as flame_router
+
+    app.include_router(flame_router)
+    logger.info("flame route registered")

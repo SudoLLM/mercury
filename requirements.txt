@@ -8,4 +8,4 @@ pymysql==1.1.0
 pyjwt==2.8.0
 redis==5.1.1
 uvicorn==0.29.0
-https://gitdl.cn/https://github.com/SudoLLM/mcelery/releases/download/0.1.0/mcelery-0.1.0-py3-none-any.whl
+mcelery @ https://gitdl.cn/https://github.com/SudoLLM/mcelery/releases/download/0.1.0/mcelery-0.1.0-py3-none-any.whl
