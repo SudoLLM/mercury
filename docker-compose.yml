@@ -99,6 +99,7 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - ./cos:/cos
+      - ./src/routes/task.py:/app/mercury/routes/task.py
       - ./mcelery/cos.py:/usr/local/lib/python3.10/dist-packages/mcelery/cos.py
     depends_on:
       - redis
