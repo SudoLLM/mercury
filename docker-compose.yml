@@ -15,7 +15,9 @@ x-common-gpu-config: &gpu-config
     resources:
       reservations:
         devices:
-          - capabilities: [ gpu ]
+          - driver: "nvidia"
+            count: "all"
+            capabilities: ["gpu"]
 
 version: "3"
 
