@@ -11,11 +11,52 @@ x-common-cpu-config: &cpu-config
     - ./cos:/cos
 x-common-gpu-config: &gpu-config
   <<: *cpu-config
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - capabilities: [ gpu ]
+  runtime: nvidia
+
+x-common-talking-head-config: &talkinghead-config
+  <<: *gpu-config
+  image: talking_head:v0.1-infer
+  volumes:
+    - ./cos:/cos
+    - ./mcelery/cos.py:/usr/local/lib/python3.10/dist-packages/mcelery/cos.py
+    - ./talking-head/talking_head_celery.py:/app/talking-head/talking_head_celery.py
+    - ./data/talking-head/dnr/exp_runs:/app/talking-head/dnr/exp_runs
+    - ./data/talking-head/user-data:/app/talking-head/user-data
+    - ./cos/model:/app/talking-head/model
+
+x-common-rvc-config: &rvc-config
+  <<: *gpu-config
+  image: rvc:v0.1-infer
+  volumes:
+    - ./cos:/cos
+    - ./mcelery/cos.py:/opt/conda/lib/python3.10/site-packages/mcelery/cos.py
+
+x-common-srt-config: &srt-config
+  image: srt:v0.1-infer
+  <<: *gpu-config
+  environment:
+    EMPTY_CACHE: true
+  volumes:
+    - ./cos:/cos
+    - ./mcelery/cos.py:/opt/conda/lib/python3.10/site-packages/mcelery/cos.py
+
+x-common-azure-config: &azure-config
+  image: azure:v0.1-infer
+  <<: *cpu-config
+  volumes:
+    - ./cos:/cos
+    - ./mcelery/cos.py:/usr/local/lib/python3.10/site-packages/mcelery/cos.py
+  environment:
+    AZURE_SPEECH_KEY: ${AZURE_SPEECH_KEY}
+    AZURE_SPEECH_REGION: ${AZURE_SPEECH_REGION}
+  
+x-common-cosy-config: &cosy-config
+  image: cosy_voice:v0.1-infer
+  <<: *gpu-config
+  volumes:
+    - ./cos:/cos
+    - ./mcelery/cos.py:/opt/conda/lib/python3.10/site-packages/mcelery/cos.py
+
 
 version: "3"
 
@@ -56,6 +97,9 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+    volumes:
+      - ./cos:/cos
+      - ./mcelery/cos.py:/usr/local/lib/python3.10/dist-packages/mcelery/cos.py
     depends_on:
       - redis
       - db
@@ -77,30 +121,79 @@ services:
       - ./data/flower:/app/flower/data
 
   # workers
-  cosy_voice:
-    image: cosy_voice:v0.1-infer
-    <<: *gpu-config
-  azure:
-    image: azure:v0.1-infer
-    <<: *cpu-config
+  azure_1:
+    <<: *azure-config
+  azure_2:
+    <<: *azure-config
+
+  rvc_1:
+    <<: *rvc-config
     environment:
-      AZURE_SPEECH_KEY: ${AZURE_SPEECH_KEY}
-      AZURE_SPEECH_REGION: ${AZURE_SPEECH_REGION}
-  rvc:
-    image: rvc:v0.1-infer
-    <<: *gpu-config
-  srt:
-    image: srt:v0.1-infer
-    <<: *gpu-config
+      - NVIDIA_VISIBLE_DEVICES=0
+  rvc_2:
+    <<: *rvc-config
     environment:
-      EMPTY_CACHE: true
-  talking_head:
-    image: talking_head:v0.1-infer
-    <<: *gpu-config
-    volumes:
-      - ./cos:/cos
-      - ./data/talking-head/dnr/exp_runs:/app/talking-head/dnr/exp_runs
-      - ./data/talking-head/user-data:/app/talking-head/user-data
+      - NVIDIA_VISIBLE_DEVICES=1
+  rvc_3:
+    <<: *rvc-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=2
+    
+  srt_1:
+    <<: *srt-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=3
+  srt_2:
+    <<: *srt-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=4
+
+  cosy_voice_1:
+    <<: *cosy-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=5
+  cosy_voice_2:
+    <<: *cosy-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=6
+  cosy_voice_3:
+    <<: *cosy-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=7
+
+  talking_head_1:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+  talking_head_2:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=1
+  talking_head_3:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=2
+  talking_head_4:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=3
+  talking_head_5:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=4
+  talking_head_6:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=5
+  talking_head_7:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=6
+  talking_head_8:
+    <<: *talkinghead-config
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=7
+  
 
 networks:
   default:
