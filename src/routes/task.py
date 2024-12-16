@@ -43,14 +43,12 @@ async def get_task(task_id: int, req: Request):
                 status = TaskStatus.PENDING
             elif r.state != "SUCCESS":
                 status = TaskStatus.UNKNOWN
-        # set res
-        if r.state == "SUCCESS":
-            for v in ["output_audio_file", "output_srt_file", "output_video_file"]:
-                key_k, id_k = f"{v}_key", f"{v}_id"
-                if key_k in task.res and r.result == task.res[key_k]:
-                    res[id_k] = task.res[id_k]
-                    break
         # set res_status
         res_status[rid] = r.state
+        
+    # set res
+    for id_k in ["output_audio_file_id", "output_srt_file_id", "output_video_file_id"]:
+        if id_k in task.res:
+            res[id_k] = task.res[id_k]
 
     return TaskResponse(id=task.id, res=res, status=status, res_status=res_status)
